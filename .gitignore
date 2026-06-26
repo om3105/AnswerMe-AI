@@ -1,0 +1,126 @@
+# ==============================
+# AnswerMe AI — .gitignore
+# ==============================
+# Production-grade gitignore covering Python, Node.js, Docker, IDEs, and secrets.
+# Last updated: 2026-06-26
+
+# ──────────────────────────────
+# Environment & Secrets
+# ──────────────────────────────
+.env
+.env.local
+.env.*.local
+!.env.example
+*.pem
+*.key
+*.crt
+*_secret*
+*_credentials*
+
+# ──────────────────────────────
+# Python
+# ──────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+.Python
+develop-eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+.pytype/
+.pyre/
+
+# ──────────────────────────────
+# Node.js / Next.js
+# ──────────────────────────────
+node_modules/
+.next/
+out/
+.nuxt/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.tsbuildinfo
+
+# ──────────────────────────────
+# Docker
+# ──────────────────────────────
+# Don't ignore Dockerfiles or docker-compose files
+# But do ignore local Docker data
+docker-data/
+*.tar
+pgdata/
+
+# ──────────────────────────────
+# IDEs & Editors
+# ──────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+
+# ──────────────────────────────
+# OS Files
+# ──────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ──────────────────────────────
+# Logs
+# ──────────────────────────────
+logs/
+*.log
+
+# ──────────────────────────────
+# Misc
+# ──────────────────────────────
+*.bak
+*.tmp
+*.temp
+.sass-cache/
