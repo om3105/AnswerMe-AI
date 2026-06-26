@@ -9,7 +9,7 @@
 ## Table of Contents
 
 1. [Step 1: Git & Version Control](#step-1-git--version-control)
-2. [Step 2: Clean Architecture & SOLID](#step-2-clean-architecture--solid) *(upcoming)*
+2. [Step 2: Clean Architecture & SOLID](#step-2-clean-architecture--solid)
 3. [Step 3: Docker & Containerization](#step-3-docker--containerization) *(upcoming)*
 4. [Step 4: FastAPI & Backend Core](#step-4-fastapi--backend-core) *(upcoming)*
 5. [Step 5: JWT Authentication](#step-5-jwt-authentication) *(upcoming)*
@@ -170,3 +170,320 @@ chore: initialize repository with project foundation
 ---
 
 *Next: Step 2 — Clean Architecture & SOLID Principles →*
+
+---
+
+## Step 2: Clean Architecture & SOLID Principles
+
+### 2.1 What is Clean Architecture?
+
+Clean Architecture is a software design philosophy introduced by **Robert C. Martin
+(Uncle Bob)** in 2012. It organizes code into concentric layers where **dependencies
+always point inward** — outer layers depend on inner layers, never the reverse.
+
+```
+┌─────────────────────────────────────────────────────┐
+│              Frameworks & Drivers                   │  ← FastAPI, SQLAlchemy, Redis
+│  ┌─────────────────────────────────────────────────┐│
+│  │           Interface Adapters                    ││  ← Routes, Schemas, Repos
+│  │  ┌─────────────────────────────────────────────┐││
+│  │  │           Use Cases (Services)              │││  ← Business logic
+│  │  │  ┌─────────────────────────────────────────┐│││
+│  │  │  │          Entities (Models)               ││││  ← Core domain objects
+│  │  │  └─────────────────────────────────────────┘│││
+│  │  └─────────────────────────────────────────────┘││
+│  └─────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────┘
+```
+
+### 2.2 The Dependency Rule
+
+> **Inner layers NEVER import from outer layers.**
+
+This is the single most important rule. It means:
+- `models/user.py` does NOT import from `api/` or `services/`
+- `services/auth_service.py` does NOT import `FastAPI` or `Request`
+- `repositories/user_repository.py` does NOT contain business rules
+
+**Why?** If your business logic depends on FastAPI, you can never switch to Django
+or test it without spinning up a web server. The Dependency Rule makes your core
+logic framework-agnostic.
+
+### 2.3 How Our Project Maps to Clean Architecture
+
+| Layer | Directory | What Lives Here | Example |
+|-------|-----------|----------------|---------|
+| **Entities** | `models/` | ORM models, domain objects | `User` with columns and constraints |
+| **Use Cases** | `services/` | Business logic, orchestration | `register_user()` — hash password, check uniqueness, save |
+| **Interface Adapters** | `api/`, `schemas/`, `repositories/` | HTTP routes, DTOs, data access | `POST /auth/register` route handler |
+| **Frameworks** | `core/`, `db/` | FastAPI, SQLAlchemy, Redis | Database engine, middleware, config |
+
+**Data flow for user registration:**
+```
+HTTP Request → Route (api/) → Schema validation (schemas/)
+            → Service (services/) → Repository (repositories/)
+            → Database (db/) → Response Schema → HTTP Response
+```
+
+### 2.4 SOLID Principles (with Python Examples)
+
+SOLID is a set of five design principles that make software **maintainable,
+testable, and extensible**. Every principle is applied in our project.
+
+---
+
+#### S — Single Responsibility Principle (SRP)
+
+> **A class should have only one reason to change.**
+
+❌ **Bad — one class does everything:**
+```python
+class UserManager:
+    def create_user(self, data):
+        # Validates email format
+        # Hashes password
+        # Saves to database
+        # Sends welcome email
+        # Logs the event
+        pass
+```
+
+✅ **Good — each class has one job:**
+```python
+class UserRepository:     # Only data access
+    async def create(self, user_data): ...
+
+class AuthService:        # Only business logic
+    async def register_user(self, data): ...
+
+class EmailService:       # Only email sending
+    async def send_welcome(self, user): ...
+```
+
+**In our project:**
+- `models/user.py` → defines the data structure (one reason to change: schema changes)
+- `repositories/user_repository.py` → handles queries (one reason: query optimization)
+- `services/auth_service.py` → enforces rules (one reason: business rules change)
+- `api/v1/endpoints/auth.py` → handles HTTP (one reason: API contract changes)
+
+---
+
+#### O — Open/Closed Principle (OCP)
+
+> **Software entities should be open for extension, closed for modification.**
+
+❌ **Bad — modifying existing code to add features:**
+```python
+class NotificationService:
+    def notify(self, user, channel):
+        if channel == "email":
+            send_email(user)
+        elif channel == "sms":   # Must modify this method for every new channel!
+            send_sms(user)
+        elif channel == "slack":
+            send_slack(user)
+```
+
+✅ **Good — extend via new classes, don't modify existing:**
+```python
+from abc import ABC, abstractmethod
+
+class NotificationChannel(ABC):
+    @abstractmethod
+    async def send(self, user, message): ...
+
+class EmailChannel(NotificationChannel):
+    async def send(self, user, message): ...
+
+class SlackChannel(NotificationChannel):   # New channel = new class, no modification
+    async def send(self, user, message): ...
+```
+
+**In our project:** The Repository pattern lets us swap PostgreSQL for MongoDB
+by creating a new repository class without modifying the service layer.
+
+---
+
+#### L — Liskov Substitution Principle (LSP)
+
+> **Subtypes must be substitutable for their base types without breaking behavior.**
+
+❌ **Bad — subclass breaks the contract:**
+```python
+class Bird:
+    def fly(self): return "flying"
+
+class Penguin(Bird):
+    def fly(self): raise Exception("Penguins can't fly!")  # Breaks the contract!
+```
+
+✅ **Good — proper abstraction:**
+```python
+class Bird(ABC):
+    @abstractmethod
+    def move(self): ...
+
+class Eagle(Bird):
+    def move(self): return "flying"
+
+class Penguin(Bird):
+    def move(self): return "swimming"
+```
+
+**In our project:** Any `Repository` subclass can replace the base repository
+in the service layer without breaking behavior.
+
+---
+
+#### I — Interface Segregation Principle (ISP)
+
+> **Clients should not be forced to depend on interfaces they don't use.**
+
+❌ **Bad — fat interface:**
+```python
+class UserRepository:
+    def create(self): ...
+    def read(self): ...
+    def update(self): ...
+    def delete(self): ...
+    def export_to_csv(self): ...      # Not every consumer needs this!
+    def generate_report(self): ...    # Nor this!
+```
+
+✅ **Good — focused interfaces:**
+```python
+class ReadableRepository(ABC):
+    @abstractmethod
+    async def get_by_id(self, id): ...
+
+class WritableRepository(ABC):
+    @abstractmethod
+    async def create(self, data): ...
+```
+
+**In our project:** Schemas are split by purpose (UserCreate, UserResponse,
+UserLogin) instead of one giant User schema. Each endpoint gets only the
+fields it needs.
+
+---
+
+#### D — Dependency Inversion Principle (DIP)
+
+> **High-level modules should not depend on low-level modules.
+> Both should depend on abstractions.**
+
+❌ **Bad — service directly creates its dependencies:**
+```python
+class AuthService:
+    def __init__(self):
+        self.db = PostgreSQLDatabase()  # Hardcoded! Can't test without real DB
+```
+
+✅ **Good — dependencies are injected:**
+```python
+class AuthService:
+    def __init__(self, repository: UserRepository):
+        self.repository = repository  # Injected! Can pass a mock for testing
+
+# In FastAPI:
+async def get_auth_service(db: AsyncSession = Depends(get_db)):
+    repo = UserRepository(db)
+    return AuthService(repo)
+```
+
+**In our project:** FastAPI's `Depends()` mechanism is our DI container.
+Routes receive services, services receive repositories, repositories receive
+database sessions — all injected, all testable.
+
+### 2.5 Monorepo vs. Polyrepo
+
+| Approach | What It Means | Pros | Cons |
+|----------|--------------|------|------|
+| **Monorepo** | Frontend + Backend in one repo | Atomic commits, shared tooling, easier refactoring | CI complexity, permission boundaries |
+| **Polyrepo** | Separate repos for frontend/backend | Independent deployments, clearer ownership | Coordination overhead, version drift |
+
+**Our choice: Monorepo** — we're a small team, and having frontend + backend in
+one repo means we can make atomic changes (e.g., update API + frontend in one commit)
+and share types/schemas.
+
+### 2.6 Why pyproject.toml Instead of requirements.txt
+
+| Feature | `requirements.txt` | `pyproject.toml` |
+|---------|-------------------|-----------------|
+| Dependency groups (dev, test, prod) | Need multiple files | Built-in `[project.optional-dependencies]` |
+| Tool configuration | Separate files (setup.cfg, pytest.ini) | All in one file |
+| Build metadata | Needs setup.py | Declarative |
+| PEP compliance | Informal | PEP 621 standard |
+| Lock file support | `pip freeze` (fragile) | Works with `pip-tools`, `poetry`, `uv` |
+
+### 2.7 Common Mistakes
+
+| Mistake | Why It's Bad | Fix |
+|---------|-------------|-----|
+| Business logic in route handlers | Untestable, duplicated | Move to service layer |
+| Importing FastAPI in services | Couples business logic to framework | Services use plain types/Pydantic |
+| One giant `models.py` file | Hard to navigate, merge conflicts | One file per model |
+| Skipping schemas (returning ORM models directly) | Exposes internal fields (hashed_password!) | Always use response schemas |
+| Circular imports | Python crashes at import time | Follow dependency direction (inward only) |
+| No `__init__.py` files | Python won't recognize packages | Every directory needs one |
+
+### 2.8 Interview Questions
+
+1. **Q: Explain Clean Architecture and the Dependency Rule.**
+   A: Clean Architecture organizes code into concentric layers (Entities → Use Cases →
+   Interface Adapters → Frameworks). The Dependency Rule states that dependencies only
+   point inward — inner layers never know about outer layers. This makes the core
+   business logic framework-agnostic and independently testable.
+
+2. **Q: What does SOLID stand for? Give a real example of each.**
+   A: Single Responsibility (one class, one job), Open/Closed (extend, don't modify),
+   Liskov Substitution (subtypes are interchangeable), Interface Segregation (small,
+   focused interfaces), Dependency Inversion (depend on abstractions, inject dependencies).
+
+3. **Q: Why separate schemas from ORM models?**
+   A: ORM models represent the database (contain hashed_password, internal IDs). Schemas
+   represent the API contract (never expose sensitive fields). They have different shapes
+   for different operations (Create vs. Response vs. Update).
+
+4. **Q: What is the Repository Pattern and why use it?**
+   A: Repository Pattern provides an abstraction over data access. Services call
+   `repo.get_by_email()` instead of writing SQL. Benefits: testability (mock the repo),
+   swappable storage (PostgreSQL today, MongoDB tomorrow), single responsibility
+   (queries are centralized).
+
+5. **Q: How does FastAPI's Depends() implement Dependency Injection?**
+   A: `Depends()` declares that a route parameter should be resolved by calling a
+   function. FastAPI calls that function, resolves its own dependencies recursively,
+   and injects the result. This creates a dependency tree that's automatically managed
+   and makes testing easy (override dependencies in tests).
+
+### 2.9 Best Practices
+
+- ✅ Follow the **Dependency Rule** — imports flow inward, never outward
+- ✅ Keep route handlers **thin** — validate, delegate to service, return response
+- ✅ Use **type hints everywhere** — they're documentation that the compiler checks
+- ✅ One model/schema per file — easier to navigate and fewer merge conflicts
+- ✅ Write **docstrings** for every module, class, and public function
+- ✅ Name files by their domain concept (`user.py`), not by their technical role (`model1.py`)
+- ✅ Use `__init__.py` to control public API of each package
+
+### 2.10 Git Commit Message for This Step
+
+```
+chore(structure): add complete project structure with clean architecture
+
+- Create backend package with layered architecture (api, core, db, models,
+  schemas, services, repositories)
+- Add pyproject.toml with all dependencies and tool configuration
+- Create test suite structure (unit, integration, conftest)
+- Add frontend placeholder (React + Vite, to be initialized in Step 7)
+- Create Docker support directories (nginx, postgres)
+- Add documentation placeholders (architecture.md, api.md)
+- Add development scripts (setup.sh, seed.sh)
+- Every module includes descriptive docstrings
+```
+
+---
+
+*Next: Step 3 — Docker & Containerization →*
+

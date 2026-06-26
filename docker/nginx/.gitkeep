@@ -1,0 +1,3 @@
+# Nginx Configuration
+# Reverse proxy configuration will be created in Step 3.
+# See: docker/nginx/nginx.conf

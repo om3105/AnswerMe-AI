@@ -4,7 +4,7 @@
     <strong>Enterprise-Grade AI Knowledge Assistant</strong>
   </p>
   <p align="center">
-    Built with FastAPI · Next.js · PostgreSQL · Redis · Docker
+    Built with FastAPI · React · PostgreSQL · Redis · Docker
   </p>
 </p>
 
@@ -37,7 +37,7 @@ Phase 1 focuses on building the software engineering backbone:
 - ✅ PostgreSQL + Redis infrastructure
 - ✅ Docker Compose orchestration
 - ✅ Structured logging and health checks
-- ✅ Next.js 15 frontend with TypeScript
+- ✅ React + Vite frontend with TypeScript
 
 ### Roadmap
 
@@ -59,7 +59,7 @@ Phase 1 focuses on building the software engineering backbone:
 - 📊 **Health Checks** — Liveness, readiness, and detailed health probes
 - 📝 **Structured Logging** — JSON-formatted logs with request tracing
 - ⚡ **Fully Async** — Async SQLAlchemy, async Redis, ASGI server
-- 🎨 **Modern Frontend** — Next.js 15, TypeScript, dark-mode glassmorphism UI
+- 🎨 **Modern Frontend** — React 19 + Vite, TypeScript, dark-mode glassmorphism UI
 - 📖 **API Documentation** — Auto-generated Swagger UI and ReDoc
 
 ---
@@ -77,8 +77,8 @@ Phase 1 focuses on building the software engineering backbone:
 ├────────────────────────┼────────────────────────────────┤
 │                        │                                │
 │   ┌──────────────┐     │   ┌──────────────────────┐     │
-│   │  Next.js 15  │     │   │     FastAPI           │     │
-│   │  App Router  │     │   │  ┌────────────────┐  │     │
+│   │  React+Vite  │     │   │     FastAPI           │     │
+│   │  SPA Client  │     │   │  ┌────────────────┐  │     │
 │   │  TypeScript  │─────┼──▶│  │  API Layer     │  │     │
 │   └──────────────┘     │   │  │  (Routes)      │  │     │
 │                        │   │  └───────┬────────┘  │     │
@@ -108,7 +108,7 @@ Phase 1 focuses on building the software engineering backbone:
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Frontend** | Next.js 15, TypeScript, React 19 | Server-side rendering, app router |
+| **Frontend** | React 19, Vite 6, TypeScript | Fast SPA with HMR, client-side routing |
 | **Backend** | FastAPI, Python 3.14 | Async API framework |
 | **ORM** | SQLAlchemy 2.0, Alembic | Database modeling, migrations |
 | **Database** | PostgreSQL 16 | Primary data store |
@@ -143,7 +143,7 @@ cp .env.example .env
 docker compose up --build
 
 # 4. Open the app
-# Frontend:  http://localhost:3000
+# Frontend:  http://localhost:5173
 # Backend:   http://localhost:8000
 # API Docs:  http://localhost:8000/docs
 ```
@@ -161,7 +161,7 @@ uvicorn app.main:app --reload --port 8000
 # Frontend
 cd frontend
 npm install
-npm run dev
+npm run dev   # starts Vite dev server on http://localhost:5173
 ```
 
 ---
@@ -183,15 +183,16 @@ AnswerMe-AI/
 │   ├── tests/                 # Test suite
 │   ├── Dockerfile
 │   └── pyproject.toml
-├── frontend/                  # Next.js application
+├── frontend/                  # React + Vite SPA
 │   ├── src/
-│   │   ├── app/               # App Router pages
-│   │   ├── components/        # UI components
+│   │   ├── pages/             # Page components (Login, Register, Dashboard)
+│   │   ├── components/        # Reusable UI components
 │   │   ├── lib/               # Utilities & API client
 │   │   ├── hooks/             # Custom React hooks
+│   │   ├── context/           # React Context providers (Auth)
 │   │   └── types/             # TypeScript types
 │   ├── Dockerfile
-│   └── next.config.ts
+│   └── vite.config.ts
 ├── docker/                    # Docker configs (nginx, postgres)
 ├── docs/                      # Documentation
 ├── scripts/                   # Utility scripts

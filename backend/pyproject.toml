@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "answerme-ai-backend"
+version = "0.1.0"
+description = "AnswerMe AI — Enterprise-Grade AI Knowledge Assistant (Backend)"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+authors = [
+    {name = "Om Chandrakant Deo", email = "om@example.com"},
+]
+
+dependencies = [
+    # Web Framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+
+    # Database
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+
+    # Validation & Settings
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+
+    # Authentication
+    "pyjwt>=2.10.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.2.0",
+
+    # Cache
+    "redis>=5.2.0",
+
+    # Logging
+    "structlog>=24.4.0",
+
+    # HTTP Client (for health checks, external calls)
+    "httpx>=0.28.0",
+
+    # Utilities
+    "python-multipart>=0.0.18",
+]
+
+[project.optional-dependencies]
+dev = [
+    # Testing
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.28.0",
+
+    # Code Quality
+    "ruff>=0.8.0",
+    "mypy>=1.14.0",
+
+    # Development
+    "ipython>=8.30.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "unit: Unit tests (fast, mocked dependencies)",
+    "integration: Integration tests (real database, slower)",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "S",    # flake8-bandit (security)
+    "T20",  # flake8-print
+    "SIM",  # flake8-simplify
+]
+ignore = ["S101"]  # Allow assert in tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

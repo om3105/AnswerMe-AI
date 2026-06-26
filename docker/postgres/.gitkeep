@@ -1,0 +1,3 @@
+# PostgreSQL Initialization
+# Database init scripts will be created in Step 3.
+# See: docker/postgres/init.sql
