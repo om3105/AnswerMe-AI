@@ -10,7 +10,7 @@
 
 1. [Step 1: Git & Version Control](#step-1-git--version-control)
 2. [Step 2: Clean Architecture & SOLID](#step-2-clean-architecture--solid)
-3. [Step 3: Docker & Containerization](#step-3-docker--containerization) *(upcoming)*
+3. [Step 3: Docker & Containerization](#step-3-docker--containerization)
 4. [Step 4: FastAPI & Backend Core](#step-4-fastapi--backend-core) *(upcoming)*
 5. [Step 5: JWT Authentication](#step-5-jwt-authentication) *(upcoming)*
 6. [Step 6: Health Checks & Observability](#step-6-health-checks--observability) *(upcoming)*
@@ -487,3 +487,223 @@ chore(structure): add complete project structure with clean architecture
 
 *Next: Step 3 — Docker & Containerization →*
 
+---
+
+## Step 3: Docker & Containerization
+
+### 3.1 What is Docker?
+
+Docker is a **containerization platform** that packages your application and all its
+dependencies into a standardized unit called a **container**. A container is like a
+lightweight virtual machine, but instead of virtualizing hardware, it virtualizes the
+operating system.
+
+```
+Traditional VM:              Docker Container:
+┌───────────────┐            ┌───────────────┐
+│   Your App    │            │   Your App    │
+├───────────────┤            ├───────────────┤
+│   Guest OS    │            │   Libraries   │
+├───────────────┤            └───────┬───────┘
+│  Hypervisor   │                    │
+├───────────────┤            ┌───────┴───────┐
+│   Host OS     │            │  Docker Engine│
+├───────────────┤            ├───────────────┤
+│   Hardware    │            │   Host OS     │
+└───────────────┘            └───────────────┘
+  ~1GB per VM                  ~50MB per container
+  Minutes to start             Seconds to start
+```
+
+### 3.2 How Docker Works Internally
+
+Docker uses three Linux kernel features:
+
+| Feature | What It Does | Docker Use |
+|---------|-------------|------------|
+| **Namespaces** | Isolates processes, network, filesystem | Each container has its own PID 1, network stack, mount points |
+| **cgroups** | Limits CPU, memory, I/O | `--memory 512m --cpus 1.5` |
+| **Union Filesystem** | Layers images efficiently | Base image + your code = overlay, shared read-only layers |
+
+### 3.3 Docker Image Layers
+
+Every `RUN`, `COPY`, and `ADD` instruction creates a new **layer**:
+
+```dockerfile
+FROM python:3.12-slim    # Layer 1: base image (~120MB, shared)
+RUN apt-get install gcc  # Layer 2: system deps (~50MB)
+COPY pyproject.toml .    # Layer 3: dependency file (~1KB)
+RUN pip install .        # Layer 4: Python deps (~200MB)
+COPY ./app ./app         # Layer 5: your code (~500KB)
+```
+
+**Key insight: Docker caches layers.** If Layer 3 hasn't changed, Layers 1-3 are
+reused from cache and only 4-5 are rebuilt. That's why we copy `pyproject.toml`
+BEFORE copying source code — dependency installs are cached unless deps change.
+
+### 3.4 Multi-Stage Builds
+
+Why our Dockerfiles have two `FROM` statements:
+
+```
+Stage 1 (builder):                Stage 2 (production):
+┌─────────────────────┐           ┌─────────────────────┐
+│ Python 3.12-slim    │           │ Python 3.12-slim    │
+│ gcc, libpq-dev      │  COPY →   │ libpq5 only         │
+│ pip, wheel          │  venv     │ /opt/venv (deps)    │
+│ All build tools     │           │ /app (your code)    │
+│ ~800MB              │           │ ~150MB              │
+└─────────────────────┘           └─────────────────────┘
+```
+
+Build tools (gcc, pip cache) stay in Stage 1 and are **discarded**.
+The production image only contains what's needed to **run** the app.
+
+### 3.5 Docker Compose
+
+Docker Compose orchestrates **multiple containers** as a single application:
+
+```yaml
+services:
+  backend:    # FastAPI container
+  frontend:   # React SPA container
+  postgres:   # Database container
+  redis:      # Cache container
+  nginx:      # Reverse proxy container
+```
+
+**Service discovery:** Compose creates a DNS entry for each service name.
+The backend can reach PostgreSQL at hostname `postgres` — no IP addresses needed.
+
+**Health checks & startup order:**
+```yaml
+depends_on:
+  postgres:
+    condition: service_healthy  # Wait for DB to be ready
+```
+
+### 3.6 Nginx as Reverse Proxy
+
+Why not expose FastAPI directly to the internet?
+
+| Without Nginx | With Nginx |
+|--------------|------------|
+| Each service needs its own port | Single port (80/443) for everything |
+| No TLS termination | Handles HTTPS certificates |
+| No load balancing | Distributes traffic across instances |
+| App server handles static files (slow) | Nginx serves static files 50x faster |
+| No request buffering | Buffers slow clients, protects backend |
+
+Our routing rules:
+```
+/api/*     → backend:8000  (FastAPI)
+/docs      → backend:8000  (Swagger UI)
+/*         → frontend:80   (React SPA)
+```
+
+### 3.7 PostgreSQL vs. Alternatives
+
+| Database | Type | Best For | Trade-off |
+|----------|------|----------|----------|
+| **PostgreSQL** | Relational (SQL) | Complex queries, ACID, JSON support | Heavier than SQLite |
+| MySQL | Relational (SQL) | Simple apps, WordPress | Fewer advanced features |
+| MongoDB | Document (NoSQL) | Unstructured data, prototyping | No ACID by default |
+| SQLite | Embedded (SQL) | Single-user apps, testing | No concurrent writes |
+
+**Why we chose PostgreSQL:**
+- ACID compliance (transactions that either fully complete or fully rollback)
+- Native JSON/JSONB support (useful for AI metadata in future phases)
+- UUID generation extensions
+- Battle-tested at every scale (Instagram, Spotify, Reddit)
+
+### 3.8 Redis Use Cases
+
+Redis is an in-memory data structure store. We use it for:
+
+| Use Case | How | Example |
+|----------|-----|--------|
+| **Caching** | Store frequently accessed data | Cache user profiles for 5 minutes |
+| **Rate Limiting** | Count requests per time window | 100 requests/minute per IP |
+| **Session Store** | Store refresh tokens | Token → user_id mapping |
+| **Pub/Sub** | Real-time messaging | Future: WebSocket notifications |
+
+Why not just use PostgreSQL for everything?
+- Redis: **sub-millisecond** reads (in-memory)
+- PostgreSQL: **1-10ms** reads (disk-based)
+- For rate limiting, that 100x difference matters at scale
+
+### 3.9 Common Mistakes
+
+| Mistake | Why It's Bad | Fix |
+|---------|-------------|-----|
+| Running as root in container | Container escape → root on host | `USER appuser` in Dockerfile |
+| No `.dockerignore` | Sends `node_modules` (500MB) to build context | Add `.dockerignore` |
+| `COPY . .` before `pip install` | Every code change rebuilds all deps | Copy deps file first, install, then copy code |
+| Hardcoded passwords in Compose | Secrets in version control | Use `.env` file + env_file directive |
+| No health checks | Orchestrator can't detect failures | `HEALTHCHECK` in Dockerfile |
+| Exposing DB ports to host in prod | Direct DB access from internet | Only expose via internal network |
+| Using `latest` tag | Builds are non-reproducible | Pin specific versions (`python:3.12-slim`) |
+
+### 3.10 Interview Questions
+
+1. **Q: What is the difference between a Docker image and a container?**
+   A: An image is a read-only template (like a class). A container is a running
+   instance of an image (like an object). You can create many containers from one image.
+
+2. **Q: Explain multi-stage builds and why they're important.**
+   A: Multi-stage builds use multiple `FROM` statements. Build tools stay in early
+   stages; only runtime artifacts are copied to the final stage. This reduces image
+   size by 60-80% and eliminates build dependencies from production.
+
+3. **Q: How does Docker networking work in Compose?**
+   A: Compose creates a bridge network and a DNS entry for each service name.
+   Containers communicate by service name (e.g., `postgres:5432`). External access
+   is only through explicitly published ports.
+
+4. **Q: What's the difference between `COPY` and `ADD` in Dockerfile?**
+   A: `COPY` copies files from build context. `ADD` does the same but also supports
+   URLs and auto-extracts tar archives. Best practice: always use `COPY` unless you
+   specifically need `ADD`'s extra features.
+
+5. **Q: Why run containers as non-root?**
+   A: If an attacker exploits a vulnerability, they're limited to the `appuser`
+   account instead of having root access. Combined with read-only filesystems and
+   dropped capabilities, this follows the principle of least privilege.
+
+6. **Q: What are Docker health checks and why do they matter?**
+   A: Health checks are commands that Docker runs periodically to verify a container
+   is functioning correctly. Orchestrators (Docker Compose, Kubernetes) use them to
+   determine startup order, auto-restart unhealthy containers, and route traffic only
+   to healthy instances.
+
+### 3.11 Best Practices
+
+- ✅ Use **multi-stage builds** to minimize image size
+- ✅ Run as **non-root user** (`USER appuser`)
+- ✅ Add **`.dockerignore`** to exclude unnecessary files from build context
+- ✅ **Pin image versions** (`python:3.12-slim` not `python:latest`)
+- ✅ Copy **dependency files before source code** for layer caching
+- ✅ Set `PYTHONDONTWRITEBYTECODE=1` and `PYTHONUNBUFFERED=1`
+- ✅ Use **health checks** for all services
+- ✅ Use **named volumes** for persistent data
+- ✅ Don't expose database/cache ports in production
+- ✅ Use `--no-cache-dir` with pip to keep images small
+
+### 3.12 Git Commit Message for This Step
+
+```
+feat(docker): add complete Docker infrastructure
+
+- Add multi-stage Dockerfile for backend (non-root, health check)
+- Add multi-stage Dockerfile for frontend (Vite build → Nginx serve)
+- Add docker-compose.yml with 5 services (nginx, backend, frontend,
+  postgres, redis)
+- Add docker-compose.dev.yml with hot-reload and exposed ports
+- Add Nginx reverse proxy config (production + development)
+- Add PostgreSQL init script (UUID and pgcrypto extensions)
+- Add .dockerignore files for both backend and frontend
+```
+
+---
+
+*Next: Step 4 — FastAPI & Backend Core →*

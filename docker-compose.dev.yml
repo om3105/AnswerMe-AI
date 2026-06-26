@@ -1,0 +1,89 @@
+# ==============================
+# AnswerMe AI — Docker Compose (Development Overrides)
+# ==============================
+# This file EXTENDS docker-compose.yml with development-specific settings.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# What's different from production?
+#   - Backend: volume mount for hot-reload (code changes → auto-restart)
+#   - Backend: uvicorn --reload flag enabled
+#   - Frontend: runs Vite dev server with HMR instead of Nginx
+#   - Database: exposed on host port 5432 (for local DB tools)
+#   - Redis: exposed on host port 6379 (for local debugging)
+#   - Nginx: proxies to Vite dev server (port 5173) instead of frontend Nginx
+
+services:
+  # ──────────────────────────────
+  # Backend — Development Mode
+  # ──────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: builder  # Use builder stage (has dev dependencies)
+    volumes:
+      # Mount source code for hot-reload
+      # Changes to Python files → uvicorn auto-restarts
+      - ./backend/app:/app/app:cached
+    command: >
+      uvicorn app.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --reload-dir /app/app
+      --log-level debug
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    ports:
+      # Expose backend directly for debugging
+      - "8000:8000"
+
+  # ──────────────────────────────
+  # Frontend — Development Mode (Vite Dev Server)
+  # ──────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: builder  # Use builder stage (has node_modules)
+    volumes:
+      # Mount source code for HMR (Hot Module Replacement)
+      - ./frontend/src:/build/src:cached
+      - ./frontend/index.html:/build/index.html:cached
+      - ./frontend/vite.config.ts:/build/vite.config.ts:cached
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    ports:
+      # Expose Vite dev server directly
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost/api/v1
+
+  # ──────────────────────────────
+  # Nginx — Development Override
+  # ──────────────────────────────
+  nginx:
+    volumes:
+      - ./docker/nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_started  # Don't wait for health check in dev
+      frontend:
+        condition: service_started
+
+  # ──────────────────────────────
+  # PostgreSQL — Expose to Host
+  # ──────────────────────────────
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  # ──────────────────────────────
+  # Redis — Expose to Host
+  # ──────────────────────────────
+  redis:
+    ports:
+      - "${REDIS_PORT:-6379}:6379"

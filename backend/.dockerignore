@@ -1,0 +1,38 @@
+# Backend .dockerignore
+# Prevents unnecessary files from being sent to the Docker build context.
+# Smaller context = faster builds.
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Tests (not needed in production image)
+tests/
+
+# Docs
+*.md
+
+# Environment files (secrets!)
+.env
+.env.local
+
+# Docker files (avoid recursive context)
+Dockerfile
+.dockerignore

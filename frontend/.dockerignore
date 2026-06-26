@@ -1,0 +1,32 @@
+# Frontend .dockerignore
+# Prevents unnecessary files from being sent to the Docker build context.
+
+# Dependencies (will be installed fresh via npm ci)
+node_modules/
+
+# Build output
+dist/
+.next/
+
+# Cache
+.cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docs
+*.md
+
+# Docker files
+Dockerfile
+.dockerignore
