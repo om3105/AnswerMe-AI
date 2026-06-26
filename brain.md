@@ -11,7 +11,7 @@
 1. [Step 1: Git & Version Control](#step-1-git--version-control)
 2. [Step 2: Clean Architecture & SOLID](#step-2-clean-architecture--solid)
 3. [Step 3: Docker & Containerization](#step-3-docker--containerization)
-4. [Step 4: FastAPI & Backend Core](#step-4-fastapi--backend-core) *(upcoming)*
+4. [Step 4: FastAPI & Backend Core](#step-4-fastapi--backend-core)
 5. [Step 5: JWT Authentication](#step-5-jwt-authentication) *(upcoming)*
 6. [Step 6: Health Checks & Observability](#step-6-health-checks--observability) *(upcoming)*
 7. [Step 7: Next.js & Frontend](#step-7-nextjs--frontend) *(upcoming)*
@@ -707,3 +707,206 @@ feat(docker): add complete Docker infrastructure
 ---
 
 *Next: Step 4 — FastAPI & Backend Core →*
+
+---
+
+## Step 4: FastAPI & Backend Core
+
+### 4.1 What is FastAPI?
+
+FastAPI is a modern, high-performance Python web framework built on top of
+**Starlette** (ASGI toolkit) and **Pydantic** (data validation). Created by
+Sebastián Ramírez in 2018.
+
+Key features:
+- **Automatic API documentation** (Swagger UI + ReDoc)
+- **Type-based validation** via Pydantic
+- **Async-first** with full `async/await` support
+- **Dependency injection** built into the framework
+- **Performance** comparable to Node.js and Go
+
+### 4.2 FastAPI vs. Flask vs. Django
+
+| Feature | FastAPI | Flask | Django |
+|---------|---------|-------|--------|
+| Async support | Native | Via extensions | Django 4.1+ (partial) |
+| Auto documentation | Built-in (OpenAPI) | Manual (flask-apispec) | Django REST Framework |
+| Validation | Pydantic (built-in) | Manual / Marshmallow | DRF Serializers |
+| ORM | Bring your own | Bring your own | Built-in (Django ORM) |
+| Learning curve | Low | Very low | High |
+| Performance | ~15,000 req/s | ~2,000 req/s | ~1,500 req/s |
+| Best for | APIs, microservices | Simple apps, prototypes | Full-stack, CMS, admin |
+
+**Why we chose FastAPI:** We're building an API-first application where
+performance, validation, and documentation are critical.
+
+### 4.3 ASGI vs. WSGI
+
+```
+WSGI (synchronous):          ASGI (asynchronous):
+Request 1 ──┬── Process        Request 1 ──┬── Start
+Request 2 ──┤   (blocked)     Request 2 ──┤   (concurrent)
+Request 3 ──┘               Request 3 ──┘
+             │                           │
+         Waiting for DB           Event loop handles
+         (thread blocked)         all 3 concurrently
+```
+
+- **WSGI** (Flask, Django): one thread per request. If a request waits for DB,
+  the thread is blocked and can't serve other requests.
+- **ASGI** (FastAPI): event loop handles many requests concurrently. While
+  waiting for DB I/O, the event loop serves other requests.
+
+For I/O-bound workloads (API → database → cache), async is 3-5x more efficient.
+
+### 4.4 Pydantic v2 — Why It's Special
+
+Pydantic v2 has a **Rust core** (pydantic-core) that makes validation
+5-50x faster than v1:
+
+```python
+from pydantic import BaseModel, Field, field_validator
+
+class UserCreate(BaseModel):
+    email: str = Field(..., description="User email")
+    password: str = Field(..., min_length=8)
+    full_name: str | None = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if "@" not in v:
+            raise ValueError("Invalid email format")
+        return v.lower()
+```
+
+Pydantic validates at runtime, catching bad data before it hits your database.
+
+### 4.5 Async SQLAlchemy 2.0
+
+SQLAlchemy 2.0 introduced native async support:
+
+```python
+# Old style (synchronous, blocking)
+result = session.query(User).filter_by(email=email).first()
+
+# New style (async, non-blocking)
+result = await session.execute(select(User).where(User.email == email))
+user = result.scalar_one_or_none()
+```
+
+**Connection Pooling** explained:
+```
+Without pool:                With pool:
+Request → CREATE conn         Request → BORROW conn from pool
+          QUERY                          QUERY
+          DESTROY conn                   RETURN conn to pool
+          (~50ms overhead)               (~0ms overhead)
+```
+
+Our settings:
+- `pool_size=5`: 5 persistent connections always open
+- `max_overflow=10`: up to 10 extra connections under load
+- `pool_pre_ping=True`: test connections before use (catches stale connections)
+- `pool_recycle=1800`: replace connections older than 30 minutes
+
+### 4.6 Lifespan Events
+
+FastAPI's lifespan context manager handles startup/shutdown:
+
+```python
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # STARTUP: runs before first request
+    await init_db()
+    await init_redis()
+    yield  # ← App runs here
+    # SHUTDOWN: runs after last response
+    await close_redis()
+    await close_db()
+```
+
+This replaces the deprecated `@app.on_event("startup")` pattern.
+
+### 4.7 Middleware Execution Order
+
+Middleware executes in **reverse registration order** (last registered = first executed):
+
+```
+Request → CORS → RequestID → Route Handler → RequestID → CORS → Response
+```
+
+Our middleware stack:
+1. **CORS**: handles preflight `OPTIONS` requests and sets CORS headers
+2. **RequestID**: generates UUID per request, attaches to logs and response
+
+### 4.8 Common Mistakes
+
+| Mistake | Why It's Bad | Fix |
+|---------|-------------|-----|
+| Using `app = FastAPI()` globally without factory | Can't create test instances | Use `create_app()` factory |
+| Forgetting `async` on DB operations | Blocks the event loop | Always `await` database calls |
+| Not setting `expire_on_commit=False` | Lazy-loading errors in async | Set it on sessionmaker |
+| Hardcoding config values | Different per environment | Use Pydantic Settings |
+| Not closing connections on shutdown | Connection pool leaks | Use lifespan events |
+| Plain text logging in production | Can't parse, can't filter | Use structlog with JSON |
+
+### 4.9 Interview Questions
+
+1. **Q: What is the difference between ASGI and WSGI?**
+   A: WSGI is synchronous (one thread per request). ASGI is asynchronous
+   (event loop handles many concurrent requests). ASGI is superior for
+   I/O-bound workloads because threads aren't blocked waiting for DB/network.
+
+2. **Q: Explain connection pooling in databases.**
+   A: Connection pooling reuses database connections instead of creating/destroying
+   them per request. This eliminates the ~50ms overhead of TCP handshake + auth
+   per query. Pool parameters (pool_size, max_overflow) control resource usage.
+
+3. **Q: Why use structured logging over print statements?**
+   A: Structured logs (JSON) are machine-parseable, filterable, and consistent.
+   They work with log aggregation tools (ELK, Datadog). Print statements are
+   unstructured, can't be filtered, and are lost in production.
+
+4. **Q: What is FastAPI's dependency injection system?**
+   A: FastAPI's `Depends()` declares that a parameter should be resolved by
+   calling a function. Dependencies can depend on other dependencies, forming
+   a tree. This decouples route handlers from infrastructure and makes testing
+   trivial (override dependencies with mocks).
+
+5. **Q: What are lifespan events and why are they important?**
+   A: Lifespan events run code on application startup and shutdown. They're
+   critical for initializing database connections, warming caches, and
+   gracefully closing resources. FastAPI uses an async context manager pattern.
+
+### 4.10 Best Practices
+
+- ✅ Use the **app factory pattern** (`create_app()`) for testability
+- ✅ Use **lifespan events** for startup/shutdown (not deprecated `on_event`)
+- ✅ Set `expire_on_commit=False` on async sessions
+- ✅ Use `pool_pre_ping=True` to detect stale connections
+- ✅ Add **request ID middleware** for distributed tracing
+- ✅ Use **custom exception classes** with consistent error responses
+- ✅ Never expose stack traces to clients in error responses
+- ✅ Suppress noisy third-party loggers (`uvicorn.access`, `sqlalchemy.engine`)
+
+### 4.11 Git Commit Message for This Step
+
+```
+feat(backend): implement FastAPI core with async DB, Redis, and middleware
+
+- Implement Pydantic Settings configuration (env vars, validation)
+- Set up structured logging with structlog (JSON/console modes)
+- Create async SQLAlchemy 2.0 session factory with connection pooling
+- Add Redis async connection manager
+- Implement JWT security utilities (password hashing, token ops)
+- Add Request ID middleware for distributed tracing
+- Create custom exception hierarchy with global handlers
+- Build FastAPI app factory with lifespan events
+- Wire v1 router with health check endpoints
+- Implement liveness and readiness health probes
+```
+
+---
+
+*Next: Step 5 — JWT Authentication →*
