@@ -12,7 +12,7 @@
 2. [Step 2: Clean Architecture & SOLID](#step-2-clean-architecture--solid)
 3. [Step 3: Docker & Containerization](#step-3-docker--containerization)
 4. [Step 4: FastAPI & Backend Core](#step-4-fastapi--backend-core)
-5. [Step 5: JWT Authentication](#step-5-jwt-authentication) *(upcoming)*
+5. [Step 5: JWT Authentication](#step-5-jwt-authentication)
 6. [Step 6: Health Checks & Observability](#step-6-health-checks--observability) *(upcoming)*
 7. [Step 7: Next.js & Frontend](#step-7-nextjs--frontend) *(upcoming)*
 8. [Step 8: Integration & DevOps](#step-8-integration--devops) *(upcoming)*
@@ -910,3 +910,209 @@ feat(backend): implement FastAPI core with async DB, Redis, and middleware
 ---
 
 *Next: Step 5 — JWT Authentication →*
+
+---
+
+## Step 5: JWT Authentication
+
+### 5.1 What is JWT?
+
+JSON Web Token (JWT) is an open standard (RFC 7519) for securely transmitting
+information between parties as a JSON object. A JWT consists of three parts
+separated by dots:
+
+```
+header.payload.signature
+
+eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMiLCJleHAiOjE2OTl9.signature_here
+└────── Header ──────┘└────── Payload ─────┘└── Signature ─┘
+```
+
+| Part | Contains | Base64-encoded? | Encrypted? |
+|------|----------|----------------|------------|
+| **Header** | Algorithm (HS256), token type (JWT) | Yes | No |
+| **Payload** | Claims (sub, exp, iat, custom) | Yes | No |
+| **Signature** | HMAC-SHA256(header + payload, secret) | Yes | N/A |
+
+> **Important:** JWT payload is NOT encrypted — it's only Base64-encoded.
+> Anyone can decode it. The signature only ensures it hasn't been **tampered with**.
+> Never put sensitive data (passwords, SSN) in a JWT.
+
+### 5.2 Access Token + Refresh Token Pattern
+
+```
+Login:
+  Client ─── email + password ───→ Server
+  Client ─── access_token (30min) + refresh_token (7d) ▒── Server
+
+API Call:
+  Client ─── Authorization: Bearer <access_token> ───→ Server
+  (valid? → return data)
+
+Token Expired:
+  Client ─── refresh_token ───→ Server
+  Client ─── new access_token ▒── Server
+```
+
+**Why two tokens?**
+- **Access token** (30 min): short-lived, sent with every API request
+- **Refresh token** (7 days): long-lived, used ONLY to get new access tokens
+
+If the access token is stolen, the attacker has only 30 minutes.
+The refresh token is sent rarely and can be revoked.
+
+### 5.3 Password Hashing — Why bcrypt?
+
+| Algorithm | Time to Hash | Brute-force 8-char password | Verdict |
+|-----------|-------------|----------------------------|--------|
+| MD5 | ~1µs | Seconds | ❌ NEVER use |
+| SHA-256 | ~1µs | Seconds | ❌ NEVER use |
+| **bcrypt** | ~100ms | **Years** | ✅ Use this |
+| Argon2 | ~100ms | **Years** | ✅ Modern alternative |
+
+**Why bcrypt is slow ON PURPOSE:**
+- bcrypt has a **cost factor** (default 12) → 2^12 = 4,096 iterations
+- Each hash takes ~100ms → attacker can try only ~10 passwords/second
+- Compare to SHA-256: attacker can try ~1 billion passwords/second
+
+### 5.4 Our Auth Flow (Data Flow)
+
+```
+Register:
+  Client → POST /auth/register {email, password, full_name}
+         → UserCreate schema validates (Pydantic)
+         → auth.py route handler (thin)
+         → AuthService.register() (business logic)
+           → Check email uniqueness (UserRepository)
+           → Hash password (bcrypt)
+           → Create user (UserRepository)
+         → UserResponse schema (no hashed_password!)
+         → 201 Created
+
+Login:
+  Client → POST /auth/login {email, password}
+         → AuthService.authenticate()
+           → Find user by email (UserRepository)
+           → Verify password (bcrypt)
+           → Check is_active
+           → Generate access + refresh tokens (JWT)
+         → Token response
+
+Protected Endpoint:
+  Client → GET /auth/me [Authorization: Bearer <token>]
+         → get_current_user dependency
+           → Extract token from header (OAuth2PasswordBearer)
+           → Decode JWT (verify signature + expiration)
+           → Fetch user from DB
+           → Check is_active
+         → UserResponse
+```
+
+### 5.5 Alembic — Database Migrations
+
+Alembic manages database schema changes (like Git for your database):
+
+```bash
+# Generate a migration from model changes
+alembic revision --autogenerate -m "create users table"
+
+# Apply migrations
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
+
+# See current migration state
+alembic current
+```
+
+**Why not just create tables from models?**
+- Can't track what changed between deployments
+- Can't rollback a bad schema change
+- Can't apply incremental changes to production
+- Alembic generates up/down migrations for safe evolution
+
+### 5.6 OWASP Authentication Best Practices
+
+| Practice | Our Implementation |
+|----------|-------------------|
+| Hash passwords with bcrypt/Argon2 | ✅ `passlib[bcrypt]` |
+| Enforce password complexity | ✅ Schema validator (8+ chars, upper, lower, digit) |
+| Don't reveal if email exists on login failure | ✅ "Invalid email or password" |
+| Use short-lived access tokens | ✅ 30-minute expiration |
+| Validate token type (access vs. refresh) | ✅ Check `type` claim |
+| Never store plain-text passwords | ✅ `hashed_password` column |
+| Use HTTPS in production | ✅ Nginx TLS termination |
+
+### 5.7 Common Mistakes
+
+| Mistake | Why It's Bad | Fix |
+|---------|-------------|-----|
+| Storing plain-text passwords | One breach exposes all accounts | Use bcrypt |
+| Using MD5/SHA for passwords | GPU can crack billions/second | Use bcrypt (intentionally slow) |
+| Same error for "wrong password" vs "email not found" | Leaks which emails are registered | Generic "Invalid credentials" |
+| No token expiration | Stolen token = permanent access | Short-lived access + refresh |
+| JWT secret in source code | Anyone can forge tokens | Use env vars |
+| Not validating token type | Refresh token used as access token | Check `type` claim |
+| Returning hashed_password in API | Exposes hash to offline attack | Use response schemas |
+
+### 5.8 Interview Questions
+
+1. **Q: How does JWT work? Walk through the flow.**
+   A: Client sends credentials → server validates → server creates JWT
+   (header.payload.signature) → client stores token → client sends token
+   in Authorization header → server validates signature and claims.
+
+2. **Q: Why use bcrypt instead of SHA-256 for password hashing?**
+   A: SHA-256 is designed to be FAST (~1µs). An attacker with a GPU can try
+   billions of passwords per second. bcrypt is intentionally SLOW (~100ms)
+   with an adaptive cost factor, making brute-force attacks computationally
+   infeasible.
+
+3. **Q: What's the purpose of the refresh token?**
+   A: The access token is short-lived (30 min) and sent with every request.
+   If stolen, damage is limited. The refresh token is long-lived (7 days)
+   and used only to obtain new access tokens. This reduces the window of
+   exposure while maintaining a good user experience.
+
+4. **Q: What are database migrations and why are they important?**
+   A: Migrations are version-controlled schema changes. They let you evolve
+   the database incrementally, rollback bad changes, and apply the same
+   changes consistently across dev/staging/production environments.
+
+5. **Q: How does FastAPI's Depends() chain work for authentication?**
+   A: `get_current_user` depends on `oauth2_scheme` (extracts token) and
+   `get_auth_service` (provides the service). The auth service depends on
+   `get_user_repository`, which depends on `get_db`. FastAPI resolves this
+   entire chain automatically for each request.
+
+### 5.9 Best Practices
+
+- ✅ **Never store plain passwords** — always hash with bcrypt or Argon2
+- ✅ **Use access + refresh token pattern** for secure sessions
+- ✅ **Validate token type** in every token operation
+- ✅ **Generic error messages** on auth failures (don't leak info)
+- ✅ **Separate schemas** for input (UserCreate) and output (UserResponse)
+- ✅ **Soft-delete users** (is_active flag) instead of hard-deleting
+- ✅ **Use Alembic** for all schema changes (never raw SQL in production)
+- ✅ **Pin JWT secrets** in environment variables, never in code
+
+### 5.10 Git Commit Message for This Step
+
+```
+feat(auth): implement JWT authentication system
+
+- Add User model with UUID PK, email, hashed_password, timestamps
+- Create Pydantic schemas (UserCreate, UserLogin, UserResponse, Token)
+- Implement UserRepository with async CRUD operations
+- Build AuthService with register, authenticate, refresh, get_user
+- Add auth endpoints (register, login, refresh, /me)
+- Set up get_current_user dependency chain with OAuth2
+- Configure Alembic for async migrations
+- Add initial migration for users table
+- Add email-validator dependency
+```
+
+---
+
+*Next: Step 6 — Health Checks & Observability →*
